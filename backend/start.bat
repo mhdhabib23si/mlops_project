@@ -1,0 +1,3 @@
+@echo off
+echo Starting Feedback Analytics Backend API...
+venv\Scripts\python main.py
