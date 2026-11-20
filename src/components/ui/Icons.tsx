@@ -166,6 +166,15 @@ export function IconChat({ size = 18, className }: IconProps) {
   )
 }
 
+export function IconCamera({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
+      <path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v11H3V8a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      <circle cx="12" cy="13" r="3.5" stroke="currentColor" strokeWidth="1.7" />
+    </svg>
+  )
+}
+
 export function IconSmile({ size = 18, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>

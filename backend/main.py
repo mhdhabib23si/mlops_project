@@ -6,9 +6,15 @@ from typing import List, Optional
 import pandas as pd
 import io
 import logging
+import os
+import asyncio
+import json
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from preprocessing import TextPreprocessor, validate_dataframe, clean_dataframe
 from sentiment_model import sentiment_analyzer
 from category_model import category_classifier
+from facial_expression_model import facial_expression_analyzer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -52,9 +58,17 @@ app = FastAPI(
 )
 
 # CORS configuration
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        'CORS_ORIGINS',
+        'http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080',
+    ).split(',')
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -104,6 +118,7 @@ async def root():
             "health": "/health",
             "upload": "/api/upload",
             "analyze": "/api/analyze",
+            "analyze_face": "/api/analyze-face",
             "batch": "/api/batch",
             "chat": "/api/chat",
             "stats": "/api/stats",
@@ -142,6 +157,24 @@ async def analyze_comment(request: CommentRequest):
     except Exception as e:
         logger.error(f"Error analyzing comment: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/analyze-face")
+async def analyze_face(file: UploadFile = File(...)):
+    image_bytes = await file.read(8 * 1024 * 1024 + 1)
+    if len(image_bytes) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Ukuran foto melebihi batas 8 MB.")
+
+    try:
+        result = await asyncio.to_thread(facial_expression_analyzer.predict, image_bytes)
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Error analyzing facial expression")
+        raise HTTPException(
+            status_code=503,
+            detail="Model ekspresi wajah belum siap. Periksa koneksi backend dan coba lagi.",
+        ) from exc
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -301,15 +334,10 @@ async def get_comments(limit: int = 20, year: Optional[str] = None, category: Op
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     """
-    Advanced chatbot endpoint dengan akses ke data website
+    Chat dengan model LM Studio menggunakan konteks data website
     """
     try:
-        # Get stats for context
         stats = await get_stats()
-
-        message_lower = request.message.lower()
-
-        # Build context from data
         context_parts = [
             f"Total komentar: {stats.total_comments}",
             f"Total positif: {stats.total_positif} ({stats.total_positif/stats.total_comments*100:.1f}%)",
@@ -327,9 +355,13 @@ async def chat(request: ChatRequest):
             context_parts.append(f"Tahun {year}: {total} komentar")
 
         context = "\n".join(context_parts)
-
-        # Analyze the question and provide intelligent response
-        response, summary_card, sources = generate_intelligent_response(request.message, message_lower, stats, context)
+        response = await query_lm_studio(request.message, context)
+        _, summary_card, sources = generate_intelligent_response(
+            request.message,
+            request.message.lower(),
+            stats,
+            context,
+        )
 
         return ChatResponse(
             message=response,
@@ -337,9 +369,70 @@ async def chat(request: ChatRequest):
             sources=sources
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in chat: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def query_lm_studio(message: str, context: str) -> str:
+    base_url = os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1").rstrip("/")
+    model = os.getenv("LM_STUDIO_MODEL", "recursivesi/flint")
+    payload = json.dumps({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "Anda adalah asisten analisis umpan balik mahasiswa Politeknik Caltex Riau. "
+                    "Jawab dalam bahasa Indonesia dengan ringkas dan jelas. Gunakan hanya data "
+                    "konteks berikut untuk menjawab pertanyaan tentang statistik; jangan mengarang "
+                    "angka. Jika informasi tidak ada di konteks, nyatakan keterbatasannya.\n\n"
+                    f"Konteks data dashboard:\n{context}"
+                ),
+            },
+            {"role": "user", "content": message},
+        ],
+        "temperature": 0.3,
+    }).encode("utf-8")
+    req = Request(
+        f"{base_url}/chat/completions",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    def send_request():
+        with urlopen(req, timeout=180) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    try:
+        result = await asyncio.to_thread(send_request)
+        answer = result["choices"][0]["message"]["content"]
+        if not isinstance(answer, str) or not answer.strip():
+            raise ValueError("LM Studio returned an empty response")
+        return answer.strip()
+    except HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="replace")
+        logger.error("LM Studio returned HTTP %s: %s", exc.code, error_body)
+        raise HTTPException(
+            status_code=502,
+            detail=f"LM Studio menolak permintaan (HTTP {exc.code}). Pastikan model '{model}' sudah dimuat.",
+        ) from exc
+    except (URLError, TimeoutError) as exc:
+        logger.error("Could not reach LM Studio at %s: %s", base_url, exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Tidak dapat terhubung ke LM Studio di {base_url}. Pastikan server LM Studio aktif.",
+        ) from exc
+    except (KeyError, IndexError, ValueError, json.JSONDecodeError) as exc:
+        logger.error("Invalid response from LM Studio: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Respons LM Studio tidak sesuai format OpenAI Chat Completions.",
+        ) from exc
+
 
 def generate_intelligent_response(message: str, message_lower: str, stats: WebsiteStats, context: str) -> tuple[str, dict, list]:
     """

@@ -1,4 +1,8 @@
-const API_BASE_URL = 'http://localhost:8000'
+const configuredApiBase = import.meta.env.VITE_API_BASE_URL as string | undefined
+const API_BASE_URL =
+  configuredApiBase === '/'
+    ? ''
+    : (configuredApiBase?.replace(/\/$/, '') || 'http://localhost:8000')
 
 export interface CommentRequest {
   text: string
@@ -38,6 +42,12 @@ export interface ChatResponse {
     description: string
   }
   sources?: string[]
+}
+
+export interface FaceAnalysisResponse {
+  emotion: string
+  sentiment: 'Positif' | 'Netral' | 'Negatif'
+  confidence: number
 }
 
 class ApiClient {
@@ -115,6 +125,22 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ message, session_id: sessionId }),
     })
+  }
+
+  async analyzeFace(image: Blob): Promise<FaceAnalysisResponse> {
+    const formData = new FormData()
+    formData.append('file', image, 'foto-sentimen.jpg')
+
+    const response = await fetch(`${this.baseUrl}/api/analyze-face`, {
+      method: 'POST',
+      body: formData,
+    })
+    if (!response.ok) {
+      const error = await response.json().catch(() => null) as { detail?: string } | null
+      throw new Error(error?.detail || `Analisis ekspresi gagal (${response.status}).`)
+    }
+
+    return response.json()
   }
 }
 

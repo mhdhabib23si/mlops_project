@@ -89,6 +89,11 @@ Upload file CSV/Excel untuk validasi
 ### POST /api/batch
 Batch processing untuk analisis sentimen dan kategori
 
+### POST /api/analyze-face
+Menganalisis foto wajah menggunakan model ekspresi lokal, lalu mengembalikan
+ekspresi, sentimen, dan tingkat keyakinan. Gunakan JPEG, PNG, atau WEBP hingga 8 MB.
+Model ekspresi diunduh dari Hugging Face saat pertama kali dipakai.
+
 ## Pipeline
 
 1. **Preprocessing**: Bersihkan teks dari noise, lowercase, remove stopwords

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { IconBot, IconPaperclip, IconRotateCcw, IconSend } from '../ui/Icons'
+import { IconBot, IconCamera, IconPaperclip, IconRotateCcw, IconSend } from '../ui/Icons'
 import { ChatBubble } from './ChatBubble'
+import { SentimentCameraModal } from './SentimentCameraModal'
 import { useChat } from '../../context/ChatContext'
 import { apiClient } from '../../lib/api'
 
@@ -8,6 +9,7 @@ export function ChatPanel() {
   const { messages, addMessage, clearCurrentChat, activeSessionId } = useChat()
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -65,10 +67,16 @@ export function ChatPanel() {
             <span className="online-status">Online</span>
           </div>
         </div>
-        <button type="button" className="ghost-btn" onClick={clearCurrentChat}>
-          <IconRotateCcw size={16} />
-          Bersihkan Chat
-        </button>
+        <div className="chat-header-actions">
+          <button type="button" className="ghost-btn" onClick={() => setCameraOpen(true)}>
+            <IconCamera size={16} />
+            Foto Sentimen
+          </button>
+          <button type="button" className="ghost-btn" onClick={clearCurrentChat}>
+            <IconRotateCcw size={16} />
+            Bersihkan Chat
+          </button>
+        </div>
       </header>
 
       <div className="chat-messages">
@@ -95,6 +103,7 @@ export function ChatPanel() {
           </button>
         </div>
       </div>
+      {cameraOpen && <SentimentCameraModal onClose={() => setCameraOpen(false)} />}
     </div>
   )
 }

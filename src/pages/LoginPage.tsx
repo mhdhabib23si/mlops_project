@@ -80,17 +80,15 @@ export function LoginPage() {
             <IconLock size={15} /> Data umpan balik bersifat rahasia. Hanya Admin yang berwenang dapat mengakses
             informasi ini.
           </p>
-          <p className="demo-cred">Akun demo: admin@pcr.ac.id · admin123</p>
         </form>
       </section>
 
       <aside className="hero-panel">
-        <img src="/images/kampus-pcr.png" alt="" />
+        <img src="/images/kampus-pcr.png?v=4" alt="" />
         <div className="hero-veil" />
         <div className="hero-content">
           <div className="pcr-logo">
-            <span className="pcr-mark" />
-            Politeknik Caltex Riau
+            <img src="/images/politeknik-caltex-riau.png" alt="Politeknik Caltex Riau" />
           </div>
           <div className="hero-copy">
             <h2>

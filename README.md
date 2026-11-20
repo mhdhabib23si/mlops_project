@@ -31,6 +31,62 @@ feedback-analytics/
 
 ## Menjalankan
 
+### Menjalankan dengan Docker
+
+Docker menjalankan frontend dan backend sebagai satu stack:
+
+```bash
+docker compose up --build
+```
+
+- Frontend: http://localhost:8081
+- Backend API: http://localhost:8001
+- Dokumentasi API: http://localhost:8001/docs
+
+Hentikan stack:
+
+```bash
+docker compose down
+```
+
+Untuk menghapus juga cache model Hugging Face:
+
+```bash
+docker compose down -v
+```
+
+Jika ingin memakai token Hugging Face, buat file `.env` di folder project:
+
+```env
+HF_TOKEN=token_anda
+```
+
+### Integrasi LM Studio / Bionic
+
+Chatbot menggunakan OpenAI-compatible API dari LM Studio. Atur server LM Studio aktif
+di port `1234`, muat model `recursivesi/flint`, dan biarkan **Just-in-time model loading**
+aktif. Compose menghubungkan container ke host melalui `host.docker.internal`.
+
+Pengaturan bawaan:
+
+```env
+LM_STUDIO_BASE_URL=http://host.docker.internal:1234/v1
+LM_STUDIO_MODEL=recursivesi/flint
+```
+
+Jika model yang dimuat berbeda, ubah `LM_STUDIO_MODEL` di file `.env`, lalu jalankan
+ulang `docker compose up -d`.
+
+### Deteksi ekspresi wajah
+
+Fitur **Foto Sentimen** menganalisis foto melalui backend aplikasi menggunakan
+`trpakov/vit-face-expression` dan OpenCV. Model mendeteksi wajah, lalu memetakan
+ekspresi senang ke Positif, datar/terkejut ke Netral, dan sedih/marah/takut/jijik
+ke Negatif. Foto hanya dikirim ke backend aplikasi untuk inferensi, tidak diteruskan
+ke LM Studio. Model ekspresi diunduh dari Hugging Face saat pertama kali dipakai dan
+disimpan di cache Docker. Model card melaporkan akurasi uji sekitar 71% pada FER2013;
+hasil prediksi tetap perkiraan dan dapat dipengaruhi pencahayaan, posisi, serta variasi wajah.
+
 ### 1. Install Frontend Dependencies
 
 ```bash
