@@ -9,12 +9,13 @@ import {
   IconShield,
   IconTable,
 } from '../ui/Icons'
+import { APP_ROUTES } from '../../lib/routes'
 
 const LINKS = [
-  { to: '/dashboard', label: 'Dashboard', icon: IconLayout },
-  { to: '/data', label: 'Data Umpan Balik', icon: IconTable },
-  { to: '/proses', label: 'Proses Data', icon: IconActivity },
-  { to: '/chatbot', label: 'Chatbot', icon: IconBot },
+  { to: APP_ROUTES.adminDashboard, label: 'Dashboard', icon: IconLayout },
+  { to: APP_ROUTES.adminData, label: 'Data Umpan Balik', icon: IconTable },
+  { to: APP_ROUTES.adminProcess, label: 'Proses Data', icon: IconActivity },
+  { to: APP_ROUTES.adminChatbot, label: 'Chatbot', icon: IconBot },
 ]
 
 export function Sidebar({

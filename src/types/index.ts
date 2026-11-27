@@ -24,6 +24,10 @@ export interface FeedbackComment {
   originalCategory: string
   predictedCategory: string
   sentiment: Sentiment
+  labelSource?: 'dataset' | 'model' | 'mixed'
+  sourceLabelConfidence?: string | null
+  sourceLabelMethod?: string | null
+  verificationStatus?: string | null
 }
 
 export interface ProcessJob {

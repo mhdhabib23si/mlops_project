@@ -15,17 +15,20 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
     environment:
       USE_SENTIMENT_GPU: "false"
       USE_LLM_GPU: "false"
       HF_TOKEN: ${HF_TOKEN:-}
       LM_STUDIO_BASE_URL: ${LM_STUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
       LM_STUDIO_MODEL: ${LM_STUDIO_MODEL:-recursivesi/flint}
+      FEEDBACK_DB_PATH: /app/data/feedback.sqlite3
       CORS_ORIGINS: "http://localhost:8081,http://127.0.0.1:8081"
     volumes:
       - huggingface-cache:/root/.cache/huggingface
+      - feedback-data:/app/data
     restart: unless-stopped
 
 volumes:
   huggingface-cache:
+  feedback-data:

@@ -14,13 +14,14 @@ feedback-analytics/
 │   │   ├── layout/         # sidebar & shell
 │   │   └── ui/             # ikon, filter, badge
 │   ├── context/            # auth, filter, job pemrosesan
-│   ├── data/               # data simulasi dashboard
+│   ├── data/               # taksonomi filter, bukan data umpan balik
 │   ├── lib/                # format angka & API client
 │   ├── pages/              # login, dashboard, data, proses
 │   ├── styles/             # desain sistem
 │   └── types/
 ├── backend/                # Python API backend
 │   ├── main.py            # FastAPI server
+│   ├── storage.py         # persistensi SQLite
 │   ├── preprocessing.py  # Text preprocessing
 │   ├── sentiment_model.py # IndoBERT sentiment analysis
 │   ├── category_model.py  # LLaMA 3 category classification
@@ -49,11 +50,13 @@ Hentikan stack:
 docker compose down
 ```
 
-Untuk menghapus juga cache model Hugging Face:
+Data hasil impor disimpan pada volume Docker `feedback-data`, sehingga tetap ada
+setelah container dimulai ulang. Untuk instalasi lokal, database bawaan berada di
+`backend/feedback.sqlite3`; atur `FEEDBACK_DB_PATH` untuk mengganti lokasinya.
 
-```bash
-docker compose down -v
-```
+Volume `feedback-data` berisi database komentar asli. `docker compose down` tidak
+menghapus volume tersebut; jangan gunakan `docker compose down -v` kecuali memang
+ingin menghapus database dan cache model.
 
 Jika ingin memakai token Hugging Face, buat file `.env` di folder project:
 
@@ -77,15 +80,13 @@ LM_STUDIO_MODEL=recursivesi/flint
 Jika model yang dimuat berbeda, ubah `LM_STUDIO_MODEL` di file `.env`, lalu jalankan
 ulang `docker compose up -d`.
 
-### Deteksi ekspresi wajah
+### Alur umpan balik pengguna dan chatbot admin
 
-Fitur **Foto Sentimen** menganalisis foto melalui backend aplikasi menggunakan
-`trpakov/vit-face-expression` dan OpenCV. Model mendeteksi wajah, lalu memetakan
-ekspresi senang ke Positif, datar/terkejut ke Netral, dan sedih/marah/takut/jijik
-ke Negatif. Foto hanya dikirim ke backend aplikasi untuk inferensi, tidak diteruskan
-ke LM Studio. Model ekspresi diunduh dari Hugging Face saat pertama kali dipakai dan
-disimpan di cache Docker. Model card melaporkan akurasi uji sekitar 71% pada FER2013;
-hasil prediksi tetap perkiraan dan dapat dipengaruhi pencahayaan, posisi, serta variasi wajah.
+Pengguna umum wajib mengambil foto melalui kamera sebelum dapat mengirim umpan balik. Foto
+dikirim sementara ke backend untuk analisis ekspresi wajah, lalu komentar dianalisis untuk
+sentimen teks dan kategori layanan. Foto tidak disimpan permanen. Pengguna tidak menggunakan
+chatbot; chatbot analisis hanya tersedia di area admin. Hasil analisis dari form publik saat ini
+hanya ditampilkan dan belum disimpan sebagai data umpan balik.
 
 ### 1. Install Frontend Dependencies
 
@@ -135,18 +136,27 @@ npm run dev
 
 Buka `http://localhost:5173`.
 
-Akun demo: `admin@pcr.ac.id` / `admin123`.
+Login administrator masih memakai kredensial pengembangan yang ditetapkan pada frontend;
+ganti dengan autentikasi backend sebelum deployment produksi.
 
 ## Halaman
 
-- Login admin (sukses & error)
-- Dashboard (KPI, grafik, insight, komentar terbaru)
+- Chatbot publik: `/user/ef99d130-afc1-475d-9fd3-0120f69f6bdd` (tanpa login; foto kamera diambil sebelum chat dimulai)
+- Login administrator: `/admin/login/4fd4f326-2efa-489e-96f5-ba824cb6ed0f`
+- Dashboard admin: `/admin/dashboard/8984f7d0-62ed-47a4-b501-51bdb17cf452`
+- Data umpan balik: `/admin/data/69626d18-f31e-46bf-9520-f28ab8a3fe23`
+- Proses data: `/admin/proses/08997c15-cd26-41bc-8d96-aa18bad3b5a0`
+- Chatbot admin: `/admin/chatbot/d38228c1-843a-4f1c-b7d0-df9e70009315`
+- UUID rute bersifat tetap per halaman dan didefinisikan di `src/lib/routes.ts`. URL lama tetap diarahkan ke URL baru.
+- Middleware frontend mengarahkan UUID yang tidak valid ke URL resmi halaman; area admin tetap memerlukan login.
+- Dashboard (KPI, grafik, insight, komentar terbaru dari data SQLite)
 - Data umpan balik (cari, filter, pagination, detail, unggah)
 - Proses data (antrean, validasi, progres, selesai, gagal)
 
 ## Pipeline ML
 
-Preprocessing → Sentimen IndoBERT → Kategori LLaMA 3 8B Instruct
+Label sentimen/kategori dari dataset dipertahankan jika tersedia; model hanya
+memprediksi label yang tidak disertakan.
 
 ### Backend API Endpoints
 
@@ -154,13 +164,21 @@ Preprocessing → Sentimen IndoBERT → Kategori LLaMA 3 8B Instruct
 - `GET /health` - Health check
 - `POST /api/analyze` - Analisis satu komentar
 - `POST /api/upload` - Upload dan validasi file
-- `POST /api/batch` - Batch processing
+- `POST /api/batch` - Analisis dan penyimpanan dataset ke SQLite
+- `GET /api/stats` - Statistik dari dataset yang tersimpan
+- `GET /api/comments` - Data komentar dengan pagination dan filter
 
 API Documentation: http://localhost:8000/docs
 
 ## Notes
 
-- Data bersifat simulasi di frontend, backend menyediakan endpoint untuk integrasi ML model sebenarnya
+- Dashboard dan chatbot statistik hanya menggunakan hasil impor yang tersimpan; sebelum impor, tampilan data kosong.
+- File CSV/Excel memerlukan kolom komentar dan tahun (nama kolom tidak peka kapitalisasi, termasuk `komentar`/`tahun`). Label `label_sentimen` dan `kategori_layanan` yang tersedia dipertahankan, bersama metadata metode dan status verifikasinya; label tersebut tidak diklasifikasikan ulang.
+- Jika label sumber tidak disediakan, backend memakai model untuk memprediksi label yang hilang. Checkpoint model sentimen/kategori belum fine-tuned, jadi prediksi tersebut perlu divalidasi.
+- Mengimpor file dengan isi yang sama tidak menggandakan record.
+- Data komentar bersifat sensitif dan disimpan pada SQLite lokal; lindungi file database serta volume backup.
+- API data belum memiliki autentikasi backend. Jangan mengekspos backend ke jaringan publik sebelum autentikasi server diterapkan.
+- Model sentimen/kategori saat ini belum memakai checkpoint fine-tuned; validasi dan fine-tuning diperlukan sebelum memakai prediksinya sebagai hasil penelitian.
 - Model IndoBERT dan LLaMA 3 akan di-download otomatis saat pertama kali backend dijalankan
 - Backend memiliki fallback rule-based jika model gagal di-load
 - Untuk menggunakan LLaMA 3 penuh, pastikan GPU tersedia dan cukup VRAM

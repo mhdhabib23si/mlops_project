@@ -6,23 +6,20 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { COMMENTS } from '../data/comments'
-import { INITIAL_JOBS } from '../data/jobs'
 import { apiClient } from '../lib/api'
-import type { FeedbackComment, Filters, ProcessJob } from '../types'
+import type { Filters, ProcessJob } from '../types'
 
 interface AppState {
   isAuthenticated: boolean
   adminEmail: string
   filters: Filters
-  comments: FeedbackComment[]
   jobs: ProcessJob[]
   login: (email: string, password: string) => boolean
   logout: () => void
   setFilters: (next: Filters) => void
   resetFilters: () => void
   addUploadJob: (file: File) => string
-  startJob: (id: string, file?: File) => void
+  startJob: (id: string, file: File) => void
 }
 
 const DEFAULT_FILTERS: Filters = {
@@ -41,8 +38,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
   const [adminEmail] = useState('admin@pcr.ac.id')
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
-  const [comments] = useState<FeedbackComment[]>(COMMENTS)
-  const [jobs, setJobs] = useState<ProcessJob[]>(INITIAL_JOBS)
+  const [jobs, setJobs] = useState<ProcessJob[]>([])
 
   const login = useCallback((email: string, password: string) => {
     const ok =
@@ -75,150 +71,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return id
   }, [])
 
-  const startJob = useCallback(async (id: string, file?: File) => {
+  const startJob = useCallback(async (id: string, file: File) => {
     setJobs((prev) =>
       prev.map((job) =>
         job.id === id
           ? {
               ...job,
-              status: 'memvalidasi',
-              message: 'Sedang memeriksa format file, kolom, dan kelengkapan data.',
+              status: 'memproses',
+              message: 'Data sedang dianalisis dan disimpan ke database.',
             }
           : job,
       ),
     )
 
-    // If file is provided, call backend API for actual processing
-    if (file) {
-      try {
-        const response = await apiClient.batchProcess(file)
-        console.log('Batch processing response:', response)
-
-        // Update job with actual results
-        setJobs((prev) =>
-          prev.map((job) =>
-            job.id === id
-              ? {
-                  ...job,
-                  status: 'memproses',
-                  message: `Validasi berhasil · ${response.total} komentar · Klasifikasi kategori sedang berjalan.`,
-                  progress: {
-                    preprocessing: response.total,
-                    sentiment: response.total,
-                    category: Math.floor(response.total * 0.6),
-                    saved: 0,
-                    total: response.total,
-                  },
-                }
-              : job,
-          ),
-        )
-
-        // Simulate progress updates
-        const total = response.total
-        let current = Math.floor(total * 0.6)
-
-        const progressInterval = setInterval(() => {
-          current += Math.ceil(total * 0.1)
-          if (current >= total) {
-            clearInterval(progressInterval)
-            setJobs((prev) =>
-              prev.map((job) =>
-                job.id === id
-                  ? {
-                      ...job,
-                      status: 'selesai',
-                      message: `${total} dari ${total} komentar berhasil dianalisis dan disimpan.`,
-                      progress: {
-                        preprocessing: total,
-                        sentiment: total,
-                        category: total,
-                        saved: total,
-                        total,
-                      },
-                    }
-                  : job,
-              ),
-            )
-          } else {
-            setJobs((prev) =>
-              prev.map((job) =>
-                job.id === id
-                  ? {
-                      ...job,
-                      progress: {
-                        preprocessing: total,
-                        sentiment: total,
-                        category: current,
-                        saved: 0,
-                        total,
-                      },
-                    }
-                  : job,
-              ),
-            )
-          }
-        }, 500)
-
-      } catch (error) {
-        console.error('Batch processing error:', error)
-        setJobs((prev) =>
-          prev.map((job) =>
-            job.id === id
-              ? {
-                  ...job,
-                  status: 'gagal',
-                  message: 'Gagal memproses data. Silakan coba lagi.',
-                  errorDetail: error instanceof Error ? error.message : 'Unknown error',
-                }
-              : job,
-          ),
-        )
-      }
-    } else {
-      // Fallback to simulation for demo
-      window.setTimeout(() => {
-        setJobs((prev) =>
-          prev.map((job) =>
-            job.id === id
-              ? {
-                  ...job,
-                  status: 'memproses',
-                  message:
-                    'Validasi berhasil · 1.000 komentar · Klasifikasi kategori sedang berjalan.',
-                  progress: {
-                    preprocessing: 1000,
-                    sentiment: 1000,
-                    category: 600,
-                    saved: 0,
-                    total: 1000,
-                  },
-                }
-              : job,
-          ),
-        )
-      }, 1400)
-
-      window.setTimeout(() => {
-        setJobs((prev) =>
-          prev.map((job) =>
-            job.id === id
-              ? {
-                  ...job,
-                  status: 'selesai',
-                  message: '1.000 dari 1.000 komentar berhasil dianalisis dan disimpan.',
-                  progress: {
-                    preprocessing: 1000,
-                    sentiment: 1000,
-                    category: 1000,
-                    saved: 1000,
-                    total: 1000,
-                  },
-                }
-              : job,
-          ),
-        )
-      }, 3200)
+    try {
+      if (!file) throw new Error('File sumber tidak ditemukan. Silakan unggah file kembali.')
+      const response = await apiClient.batchProcess(file)
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.id === id
+            ? {
+                ...job,
+                status: 'selesai',
+                message: response.message ?? `${response.processed} komentar berhasil dianalisis.`,
+                progress: {
+                  preprocessing: response.processed,
+                  sentiment: response.processed,
+                  category: response.processed,
+                  saved: response.processed,
+                  total: response.total,
+                },
+              }
+            : job,
+        ),
+      )
+    } catch (error) {
+      console.error('Batch processing error:', error)
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.id === id
+            ? {
+                ...job,
+                status: 'gagal',
+                message: 'Gagal memproses data. Silakan periksa file dan coba lagi.',
+                errorDetail: error instanceof Error ? error.message : 'Unknown error',
+              }
+            : job,
+        ),
+      )
     }
   }, [])
 
@@ -227,7 +127,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isAuthenticated,
       adminEmail,
       filters,
-      comments,
       jobs,
       login,
       logout,
@@ -240,7 +139,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isAuthenticated,
       adminEmail,
       filters,
-      comments,
       jobs,
       login,
       logout,

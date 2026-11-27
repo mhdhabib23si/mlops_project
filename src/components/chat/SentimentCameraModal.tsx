@@ -1,22 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { IconCamera, IconClose } from '../ui/Icons'
-import { apiClient, type FaceAnalysisResponse } from '../../lib/api'
 
-const EMOTION_LABELS: Record<string, string> = {
-  happy: 'Senang',
-  neutral: 'Datar',
-  surprise: 'Terkejut',
-  sad: 'Sedih',
-  angry: 'Marah',
-  disgust: 'Jijik',
-  fear: 'Takut',
-}
-
-export function SentimentCameraModal({ onClose }: { onClose: () => void }) {
+export function SentimentCameraModal({
+  onClose,
+  onPhotoCaptured,
+}: {
+  onClose: () => void
+  onPhotoCaptured: (photo: string) => void
+}) {
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [photo, setPhoto] = useState<string | null>(null)
-  const [analysis, setAnalysis] = useState<FaceAnalysisResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -45,17 +39,15 @@ export function SentimentCameraModal({ onClose }: { onClose: () => void }) {
   const startCamera = async () => {
     setError('')
     setPhoto(null)
-    setAnalysis(null)
     setLoading(true)
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error('Akses kamera memerlukan koneksi HTTPS atau localhost.')
       }
-      const cameraStream = await navigator.mediaDevices.getUserMedia({
+      setStream(await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: { facingMode: 'user' },
-      })
-      setStream(cameraStream)
+      }))
     } catch (cameraError) {
       console.error('Camera access error:', cameraError)
       setError(
@@ -70,7 +62,7 @@ export function SentimentCameraModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const captureAndAnalyze = async () => {
+  const capturePhoto = () => {
     const video = videoRef.current
     if (!video || !video.videoWidth || !video.videoHeight || !stream) {
       setError('Kamera belum siap. Tunggu pratinjau muncul, lalu coba lagi.')
@@ -89,30 +81,11 @@ export function SentimentCameraModal({ onClose }: { onClose: () => void }) {
     context.translate(canvas.width, 0)
     context.scale(-1, 1)
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
-    const image = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9))
-    if (!image) {
-      setError('Foto tidak dapat dibuat. Coba ambil foto lagi.')
-      return
-    }
-
     setPhoto(canvas.toDataURL('image/jpeg', 0.9))
-    setAnalysis(null)
-    setError('')
     stream.getTracks().forEach((track) => track.stop())
     setStream(null)
-    setLoading(true)
-    try {
-      setAnalysis(await apiClient.analyzeFace(image))
-    } catch (analysisError) {
-      console.error('Facial expression analysis error:', analysisError)
-      setError(analysisError instanceof Error ? analysisError.message : 'Analisis ekspresi gagal. Coba lagi.')
-    } finally {
-      setLoading(false)
-    }
+    setError('')
   }
-
-  const emotion = analysis ? (EMOTION_LABELS[analysis.emotion] || analysis.emotion) : ''
-  const confidence = analysis ? Math.round(analysis.confidence * 100) : 0
 
   return createPortal(
     <div
@@ -129,8 +102,8 @@ export function SentimentCameraModal({ onClose }: { onClose: () => void }) {
       >
         <header className="modal-head">
           <div>
-            <h2 id="sentiment-camera-title">Deteksi Sentimen Wajah</h2>
-            <p>Ambil foto dan model akan mengenali ekspresi serta menentukan sentimennya.</p>
+            <h2 id="sentiment-camera-title">Ambil Foto Wajah</h2>
+            <p>Posisikan wajah di tengah kamera. Foto digunakan untuk analisis ekspresi wajah.</p>
           </div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Tutup kamera">
             <IconClose />
@@ -139,7 +112,7 @@ export function SentimentCameraModal({ onClose }: { onClose: () => void }) {
 
         <div className="sentiment-camera-stage">
           {photo ? (
-            <img className="sentiment-photo" src={photo} alt="Foto untuk analisis ekspresi wajah" />
+            <img className="sentiment-photo" src={photo} alt="Pratinjau foto wajah" />
           ) : stream ? (
             <video ref={videoRef} className="sentiment-camera-video" autoPlay playsInline muted />
           ) : (
@@ -150,32 +123,28 @@ export function SentimentCameraModal({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        {analysis && (
-          <div className={`sentiment-analysis-result ${analysis.sentiment.toLowerCase()}`} role="status">
-            <strong>Ekspresi: {emotion}</strong>
-            <span>Sentimen: {analysis.sentiment}</span>
-            <small>Tingkat keyakinan model: {confidence}%</small>
-          </div>
-        )}
         <p className="sentiment-camera-note">
-          Foto dikirim ke backend aplikasi ini untuk analisis, bukan ke LM Studio. Akurasi uji model sekitar 71%
-          pada FER2013; pencahayaan dan posisi wajah dapat memengaruhi hasil.
+          Setelah digunakan, foto dikirim sementara ke backend untuk analisis ekspresi dan tidak disimpan permanen.
         </p>
         {error && <p className="sentiment-camera-error" role="alert">{error}</p>}
 
         <div className="sentiment-camera-actions">
-          {photo && analysis && (
-            <a className="ghost-btn sentiment-download" href={photo} download={`foto-sentimen-${analysis.sentiment.toLowerCase()}.jpg`}>
-              Unduh Foto
-            </a>
-          )}
           {stream ? (
-            <button type="button" className="primary-btn" onClick={captureAndAnalyze} disabled={loading}>
-              <IconCamera size={18} /> {loading ? 'Menganalisis Ekspresi...' : 'Analisis Ekspresi'}
+            <button type="button" className="primary-btn" onClick={capturePhoto} disabled={loading}>
+              <IconCamera size={18} /> Ambil Foto
             </button>
+          ) : photo ? (
+            <>
+              <button type="button" className="ghost-btn" onClick={startCamera} disabled={loading}>
+                Ambil Ulang
+              </button>
+              <button type="button" className="primary-btn" onClick={() => onPhotoCaptured(photo)}>
+                Gunakan Foto
+              </button>
+            </>
           ) : (
             <button type="button" className="primary-btn" onClick={startCamera} disabled={loading}>
-              <IconCamera size={18} /> {loading ? 'Menganalisis Ekspresi...' : photo ? 'Ambil Ulang' : 'Buka Kamera'}
+              <IconCamera size={18} /> {loading ? 'Membuka Kamera...' : 'Buka Kamera'}
             </button>
           )}
         </div>

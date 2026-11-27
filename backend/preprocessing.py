@@ -88,16 +88,11 @@ def validate_dataframe(df: pd.DataFrame, required_columns: List[str]) -> tuple[b
 
 def clean_dataframe(df: pd.DataFrame, text_column: str = 'Komentar') -> pd.DataFrame:
     """
-    Bersihkan DataFrame: remove nulls, duplicates, etc.
+    Remove rows without usable comment text while preserving repeated responses.
     """
-    # Remove rows with null in text column
-    df = df.dropna(subset=[text_column])
-
-    # Remove duplicates
-    df = df.drop_duplicates(subset=[text_column])
-
-    # Remove empty strings
-    df = df[df[text_column].str.strip() != '']
+    df = df.dropna(subset=[text_column]).copy()
+    df[text_column] = df[text_column].astype(str).str.strip()
+    df = df[df[text_column] != '']
 
     logger.info(f"DataFrame cleaned: {len(df)} rows remaining")
     return df

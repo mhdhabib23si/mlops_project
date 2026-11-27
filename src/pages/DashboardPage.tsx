@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CategoryBars } from '../components/charts/CategoryBars'
 import { DonutChart } from '../components/charts/DonutChart'
@@ -6,6 +6,7 @@ import { StackedBars } from '../components/charts/StackedBars'
 import { SentimentTrend, VolumeTrend, volumeChange } from '../components/charts/TrendCharts'
 import { UploadModal } from '../components/data/UploadModal'
 import { DetailDrawer } from '../components/data/DetailDrawer'
+import { APP_ROUTES } from '../lib/routes'
 import { FilterBar } from '../components/ui/FilterBar'
 import {
   IconArrowRight,
@@ -20,92 +21,94 @@ import {
 } from '../components/ui/Icons'
 import { SentimentBadge } from '../components/ui/SentimentBadge'
 import { useApp } from '../context/AppContext'
-import {
-  CATEGORY_STATS,
-  SURVEY_YEARS,
-  TOTAL_COMMENTS,
-  TOTAL_NEGATIF,
-  TOTAL_NETRAL,
-  TOTAL_POSITIF,
-  YEARLY_SENTIMENT,
-  YEARLY_TOTALS,
-} from '../data/dashboard'
+import { apiClient, type DashboardStats, type PersistedFeedbackComment } from '../lib/api'
 import { formatNumber, formatPercent, percentOf } from '../lib/format'
 import type { FeedbackComment } from '../types'
 
-function matchesCategory(predicted: string, filter: string) {
-  const map: Record<string, string> = {
-    Kemahasiswaan: 'Kemahasiswaan',
-    Keuangan: 'Keuangan',
-    'Sistem & TI': 'Sistem',
-    Perpustakaan: 'Perpustakaan',
-    'Kerjasama & Karir': 'Kerjasama',
-    BAAK: 'BAAK',
-    'Sarana & Prasarana': 'Sarana',
-  }
-  return predicted.includes(map[filter] ?? filter)
-}
-
 export function DashboardPage() {
-  const { filters, setFilters, resetFilters, comments } = useApp()
+  const { filters, setFilters, resetFilters } = useApp()
   const [showUpload, setShowUpload] = useState(false)
   const [detail, setDetail] = useState<FeedbackComment | null>(null)
+  const [dashboardLoad, setDashboardLoad] = useState<{
+    key: string
+    stats?: DashboardStats
+    latest: PersistedFeedbackComment[]
+    error?: string
+  } | null>(null)
+  const filtersKey = `${filters.year}|${filters.category}|${filters.sentiment}`
 
-  const filteredComments = useMemo(
-    () =>
-      comments.filter((c) => {
-        if (filters.year !== 'all' && String(c.year) !== filters.year) return false
-        if (filters.sentiment !== 'all' && c.sentiment !== filters.sentiment) return false
-        if (filters.category !== 'all' && !matchesCategory(c.predictedCategory, filters.category)) return false
-        return true
-      }),
-    [comments, filters],
-  )
-
-  const stats = useMemo(() => {
-    const year = filters.year
-    let total = year === 'all' ? TOTAL_COMMENTS : YEARLY_TOTALS[year]
-    let positif = year === 'all' ? TOTAL_POSITIF : YEARLY_SENTIMENT[year].positif
-    let netral = year === 'all' ? TOTAL_NETRAL : YEARLY_SENTIMENT[year].netral
-    let negatif = year === 'all' ? TOTAL_NEGATIF : YEARLY_SENTIMENT[year].negatif
-    let categories = CATEGORY_STATS.map((c) => ({ ...c }))
-
-    if (filters.category !== 'all') {
-      categories = categories.filter((c) => c.name === filters.category)
-      const cat = categories[0]
-      if (cat) {
-        total = cat.total
-        positif = cat.positif
-        netral = cat.netral
-        negatif = cat.negatif
-      }
+  useEffect(() => {
+    let active = true
+    const currentFilters = {
+      year: filters.year,
+      category: filters.category,
+      sentiment: filters.sentiment,
     }
-    if (filters.sentiment === 'Positif') {
-      total = positif
-      netral = 0
-      negatif = 0
-    } else if (filters.sentiment === 'Netral') {
-      total = netral
-      positif = 0
-      negatif = 0
-    } else if (filters.sentiment === 'Negatif') {
-      total = negatif
-      positif = 0
-      netral = 0
+    Promise.all([
+      apiClient.getStats(currentFilters),
+      apiClient.getComments({ limit: 5, ...currentFilters }),
+    ])
+      .then(([nextStats, recent]) => {
+        if (!active) return
+        setDashboardLoad({ key: filtersKey, stats: nextStats, latest: recent.comments })
+      })
+      .catch((error: unknown) => {
+        if (!active) return
+        setDashboardLoad({
+          key: filtersKey,
+          latest: [],
+          error: error instanceof Error ? error.message : 'Gagal memuat data dashboard.',
+        })
+      })
+    return () => {
+      active = false
     }
-    return { total, positif, netral, negatif, categories }
-  }, [filters])
+  }, [filters.year, filters.category, filters.sentiment, filtersKey])
 
-  const empty = stats.total === 0
-  const attention = [...stats.categories].sort((a, b) => percentOf(b.negatif, b.total) - percentOf(a.negatif, a.total))
-  const topCategory = [...stats.categories].sort((a, b) => b.total - a.total)[0]
+  const stats = dashboardLoad?.key === filtersKey ? dashboardLoad.stats ?? null : null
+  const latest = dashboardLoad?.key === filtersKey ? dashboardLoad.latest : []
+  const loadError = dashboardLoad?.key === filtersKey ? dashboardLoad.error ?? '' : ''
+  const loading = !dashboardLoad || dashboardLoad.key !== filtersKey
+  const empty = !stats || stats.total_comments === 0
+  const categories = stats?.category_stats ?? []
+  const years = Object.keys(stats?.yearly_totals ?? {}).sort()
+  const attention = [...categories].sort((a, b) => percentOf(b.negatif, b.total) - percentOf(a.negatif, a.total))
+  const topCategory = [...categories].sort((a, b) => b.total - a.total)[0]
   const worst = attention[0]
-  const latest = filteredComments.slice(0, 5)
+  const latestYear = years[years.length - 1]
+  const previousYear = years[years.length - 2]
+  const latestSentiment = latestYear ? stats?.yearly_sentiment[latestYear] : undefined
+  const previousSentiment = previousYear ? stats?.yearly_sentiment[previousYear] : undefined
+  const latestPositiveRate = latestYear && latestSentiment
+    ? percentOf(latestSentiment.positif, stats?.yearly_totals[latestYear] ?? 0)
+    : null
+  const previousPositiveRate = previousYear && previousSentiment
+    ? percentOf(previousSentiment.positif, stats?.yearly_totals[previousYear] ?? 0)
+    : null
+  const positiveChange = latestPositiveRate !== null && previousPositiveRate !== null
+    ? latestPositiveRate - previousPositiveRate
+    : null
+
+  const openDetail = (comment: PersistedFeedbackComment) => {
+    setDetail({
+      id: comment.id,
+      year: comment.year,
+      date: String(comment.year),
+      text: comment.text,
+      originalCategory: comment.original_category ?? 'Tidak tersedia',
+      predictedCategory: comment.category,
+      sentiment: comment.sentiment,
+      labelSource: comment.label_source,
+      sourceLabelConfidence: comment.source_label_confidence,
+      sourceLabelMethod: comment.source_label_method,
+      verificationStatus: comment.verification_status,
+    })
+  }
 
   const exportReport = () => {
     const lines = [
       'Kategori,Total,Positif,Netral,Negatif',
-      ...stats.categories.map(
+      ...(stats?.category_stats ?? []).map(
         (c) => `${c.name},${c.total},${c.positif},${c.netral},${c.negatif}`,
       ),
     ]
@@ -126,46 +129,63 @@ export function DashboardPage() {
           <h1>Dashboard Analisis Umpan Balik</h1>
           <p>Ringkasan hasil analisis umpan balik mahasiswa PCR.</p>
         </div>
-        <button type="button" className="primary-btn" onClick={exportReport}>
+        <button
+          type="button"
+          className="primary-btn"
+          onClick={exportReport}
+          disabled={!stats || stats.total_comments === 0 || loading}
+        >
           <IconDownload /> Export Laporan
         </button>
       </header>
-      <p className="updated">Diperbarui 20 Des 2025, 09.30 WIB</p>
+      <p className="updated">
+        {loading ? 'Memuat data tersimpan...' : stats ? `${formatNumber(stats.total_comments)} komentar tersimpan di SQLite` : ''}
+      </p>
 
-      <FilterBar filters={filters} onChange={setFilters} onReset={resetFilters} />
+      <FilterBar
+        filters={filters}
+        years={(stats?.available_years ?? []).map(String)}
+        onChange={setFilters}
+        onReset={resetFilters}
+      />
 
+      {loading && <div className="info-banner">Memuat statistik dari database...</div>}
+      {loadError && <div className="error-banner">Gagal memuat data: {loadError}</div>}
+
+      {!loading && !loadError && stats && (
+        <>
       <section className="kpi-grid">
         <article className="kpi white">
           <div>
             <span>Total Umpan Balik</span>
             <IconChat />
           </div>
-          <strong>{formatNumber(stats.total)}</strong>
-          <small>Periode survei 2022-2025</small>
+          <strong>{formatNumber(stats.total_comments)}</strong>
+          <small>Jumlah data sesuai filter</small>
         </article>
         <article className="kpi positif">
           <div>
             <span>Sentimen Positif</span>
             <IconSmile />
           </div>
-          <strong>{formatNumber(stats.positif)}</strong>
-          <small>{formatPercent(percentOf(stats.positif, stats.total || 1))} dari seluruh komentar</small>
+          <strong>{formatNumber(stats.total_positif)}</strong>
+          <small>{formatPercent(percentOf(stats.total_positif, stats.total_comments))} dari data terfilter</small>
         </article>
         <article className="kpi netral">
           <div>
             <span>Sentimen Netral</span>
             <IconMeh />
           </div>
-          <strong>{formatNumber(stats.netral)}</strong>
-          <small>{formatPercent(percentOf(stats.netral, stats.total || 1))} dari seluruh komentar</small>
+          <strong>{formatNumber(stats.total_netral)}</strong>
+          <small>{formatPercent(percentOf(stats.total_netral, stats.total_comments))} dari data terfilter</small>
         </article>
         <article className="kpi negatif">
           <div>
             <span>Sentimen Negatif</span>
             <IconFrown />
           </div>
-          <strong>{formatNumber(stats.negatif)}</strong>
-          <small>{formatPercent(percentOf(stats.negatif, stats.total || 1))} dari seluruh komentar</small>
+          <strong>{formatNumber(stats.total_negatif)}</strong>
+          <small>{formatPercent(percentOf(stats.total_negatif, stats.total_comments))} dari data terfilter</small>
         </article>
       </section>
 
@@ -174,15 +194,20 @@ export function DashboardPage() {
           <div className="empty-icon">
             <IconTrend size={28} />
           </div>
-          <h2>Belum ada umpan balik untuk dianalisis</h2>
+          <h2>
+            {stats.available_years.length
+              ? 'Tidak ada umpan balik yang sesuai dengan filter'
+              : 'Belum ada umpan balik untuk dianalisis'}
+          </h2>
           <p>
-            Unggah dataset PCRSURVEI pertama untuk melihat distribusi sentimen, kategori layanan, tren tahunan, dan
-            insight.
+            {stats.available_years.length
+              ? 'Ubah filter atau pilih ulang rentang data untuk melihat hasil.'
+              : 'Belum ada data di database. Unggah file asli untuk melihat ringkasan, grafik, tren, dan insight.'}
           </p>
           <button type="button" className="primary-btn" onClick={() => setShowUpload(true)}>
             <IconUpload /> Unggah Data
           </button>
-          <small>Grafik, insight, dan komentar terbaru akan tampil setelah pemrosesan data selesai.</small>
+          <small>Dashboard hanya menampilkan data yang benar-benar sudah diimpor.</small>
         </section>
       ) : (
         <>
@@ -191,18 +216,18 @@ export function DashboardPage() {
               <h2>Distribusi Sentimen</h2>
               <p>Proporsi dari seluruh komentar</p>
               <DonutChart
-                positif={stats.positif}
-                netral={stats.netral}
-                negatif={stats.negatif}
-                total={stats.total}
+                positif={stats.total_positif}
+                netral={stats.total_netral}
+                negatif={stats.total_negatif}
+                total={stats.total_comments}
               />
             </article>
             <article className="card">
               <h2>Umpan Balik per Kategori</h2>
               <p>
-                Jumlah komentar dan bagian dari total {formatNumber(stats.total)} komentar
+                Jumlah komentar dan bagian dari total {formatNumber(stats.total_comments)} komentar
               </p>
-              <CategoryBars rows={stats.categories} total={stats.total} />
+              <CategoryBars rows={categories} total={stats.total_comments} />
             </article>
           </section>
 
@@ -220,19 +245,25 @@ export function DashboardPage() {
                 <i className="dot negatif" /> Negatif
               </span>
             </div>
-            <StackedBars rows={stats.categories} />
+            <StackedBars rows={categories} />
             <p className="footnote">Persentase dibulatkan satu desimal. Jumlah di kanan adalah total komentar kategori.</p>
           </article>
 
           <section className="grid-2">
             <article className="card">
               <h2>Tren Umpan Balik Tahunan</h2>
-              <p>Jumlah komentar · periode survei 2022-2025</p>
-              <p className="trend-highlight">
-                <strong>{formatNumber(YEARLY_TOTALS['2025'])} komentar pada 2025</strong>
-                <span>{volumeChange('2025', '2024')} dari 2024</span>
-              </p>
-              <VolumeTrend />
+              <p>Jumlah komentar per tahun pada data terfilter</p>
+              {latestYear && (
+                <p className="trend-highlight">
+                  <strong>{formatNumber(stats.yearly_totals[latestYear])} komentar pada {latestYear}</strong>
+                  <span>
+                    {previousYear
+                      ? `${volumeChange(latestYear, previousYear, stats.yearly_totals)} dari ${previousYear}`
+                      : 'Belum ada tahun pembanding'}
+                  </span>
+                </p>
+              )}
+              <VolumeTrend years={years} totals={stats.yearly_totals} />
               <table className="mini-table">
                 <thead>
                   <tr>
@@ -242,11 +273,11 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {SURVEY_YEARS.map((year, i) => (
+                  {years.map((year, i) => (
                     <tr key={year}>
                       <td>{year}</td>
-                      <td>{formatNumber(YEARLY_TOTALS[year])}</td>
-                      <td>{i === 0 ? '—' : volumeChange(year, SURVEY_YEARS[i - 1])}</td>
+                      <td>{formatNumber(stats.yearly_totals[year])}</td>
+                      <td>{i === 0 ? '—' : volumeChange(year, years[i - 1], stats.yearly_totals)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -266,7 +297,11 @@ export function DashboardPage() {
                   <i className="dot negatif" /> Negatif
                 </span>
               </div>
-              <SentimentTrend />
+              <SentimentTrend
+                years={years}
+                totals={stats.yearly_totals}
+                sentiments={stats.yearly_sentiment}
+              />
               <table className="mini-table">
                 <thead>
                   <tr>
@@ -277,9 +312,9 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {SURVEY_YEARS.map((year) => {
-                    const s = YEARLY_SENTIMENT[year]
-                    const t = YEARLY_TOTALS[year]
+                  {years.map((year) => {
+                    const s = stats.yearly_sentiment[year]
+                    const t = stats.yearly_totals[year]
                     return (
                       <tr key={year}>
                         <td>{year}</td>
@@ -310,8 +345,10 @@ export function DashboardPage() {
                 </p>
                 <h3>{topCategory?.name}</h3>
                 <strong>{formatNumber(topCategory?.total ?? 0)}</strong>
-                <small>komentar · {formatPercent(percentOf(topCategory?.total ?? 0, stats.total))} dari total</small>
-                <p>Kategori yang paling banyak dibahas pada periode 2022-2025.</p>
+                <small>
+                  komentar · {formatPercent(percentOf(topCategory?.total ?? 0, stats.total_comments))} dari total
+                </small>
+                <p>Kategori dengan jumlah komentar terbanyak pada data terfilter.</p>
               </article>
               <article>
                 <p>
@@ -322,16 +359,28 @@ export function DashboardPage() {
                 <small>
                   {formatNumber(worst?.negatif ?? 0)} dari {formatNumber(worst?.total ?? 0)} komentar
                 </small>
-                <p>Proporsi negatif tertinggi di antara tujuh kategori layanan.</p>
+                <p>Proporsi negatif tertinggi di antara kategori yang memiliki data.</p>
               </article>
               <article>
                 <p>
                   <IconTrend size={16} /> Perubahan Sentimen
                 </p>
-                <h3>2025 dibandingkan 2024</h3>
-                <strong>+4,3</strong>
-                <small>poin persentase · positif</small>
-                <p>Positif: 55,3% → 59,5%; selisih dihitung sebelum pembulatan, bukan ukuran kualitas layanan.</p>
+                <h3>
+                  {previousYear && latestYear
+                    ? `${latestYear} dibandingkan ${previousYear}`
+                    : 'Belum ada data pembanding'}
+                </h3>
+                <strong>
+                  {positiveChange === null
+                    ? '—'
+                    : `${positiveChange >= 0 ? '+' : ''}${positiveChange.toFixed(1).replace('.', ',')}`}
+                </strong>
+                <small>poin persentase · sentimen positif</small>
+                <p>
+                  {latestPositiveRate !== null && previousPositiveRate !== null
+                    ? `Proporsi positif: ${formatPercent(previousPositiveRate)} → ${formatPercent(latestPositiveRate)}.`
+                    : 'Perlu data dari minimal dua tahun untuk membandingkan tren.'}
+                </p>
               </article>
             </div>
           </section>
@@ -374,9 +423,9 @@ export function DashboardPage() {
             <div className="table-head">
               <div>
                 <h2>Umpan Balik Mahasiswa Terbaru</h2>
-                <p>Lima komentar terbaru · anonim · data simulasi</p>
+                <p>Komentar terbaru dari data yang tersimpan</p>
               </div>
-              <Link to="/data" className="text-btn">
+              <Link to={APP_ROUTES.adminData} className="text-btn">
                 Lihat Semua Data <IconArrowRight size={16} />
               </Link>
             </div>
@@ -386,21 +435,21 @@ export function DashboardPage() {
                   <th>Komentar Mahasiswa</th>
                   <th>Kategori Layanan</th>
                   <th>Sentimen</th>
-                  <th>Tanggal</th>
+                  <th>Tahun</th>
                   <th>Aksi</th>
                 </tr>
               </thead>
               <tbody>
                 {latest.map((row) => (
                   <tr key={row.id}>
-                    <td>{row.text.slice(0, 92)}...</td>
-                    <td>{row.predictedCategory}</td>
+                    <td>{row.text.slice(0, 92)}{row.text.length > 92 ? '...' : ''}</td>
+                    <td>{row.category}</td>
                     <td>
                       <SentimentBadge sentiment={row.sentiment} />
                     </td>
-                    <td>{row.date.replace(' Desember ', ' Des ')}</td>
+                    <td>{row.year}</td>
                     <td>
-                      <button type="button" className="link-btn" onClick={() => setDetail(row)}>
+                      <button type="button" className="link-btn" onClick={() => openDetail(row)}>
                         Detail
                       </button>
                     </td>
@@ -409,6 +458,8 @@ export function DashboardPage() {
               </tbody>
             </table>
           </section>
+        </>
+      )}
         </>
       )}
 

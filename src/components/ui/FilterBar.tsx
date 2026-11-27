@@ -1,13 +1,15 @@
-import { SERVICE_CATEGORIES, SURVEY_YEARS } from '../../data/dashboard'
+import { SERVICE_CATEGORIES } from '../../data/dashboard'
 import type { Filters } from '../../types'
 import { IconRefresh } from './Icons'
 
 export function FilterBar({
   filters,
+  years,
   onChange,
   onReset,
 }: {
   filters: Filters
+  years: string[]
   onChange: (next: Filters) => void
   onReset: () => void
 }) {
@@ -19,8 +21,8 @@ export function FilterBar({
           value={filters.year}
           onChange={(e) => onChange({ ...filters, year: e.target.value })}
         >
-          <option value="all">Semua tahun (2022-2025)</option>
-          {SURVEY_YEARS.map((year) => (
+          <option value="all">Semua tahun</option>
+          {years.map((year) => (
             <option key={year} value={year}>
               {year}
             </option>

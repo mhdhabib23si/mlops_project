@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '../../context/AppContext'
 import { IconClose, IconFile, IconInfo, IconUpload } from '../ui/Icons'
 import { apiClient } from '../../lib/api'
+import { APP_ROUTES } from '../../lib/routes'
 
 export function UploadModal({ onClose }: { onClose: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -31,26 +32,14 @@ export function UploadModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const process = async () => {
+  const process = () => {
     if (!file || uploadStatus !== 'validated') return
 
     setUploading(true)
     const id = addUploadJob(file)
-    startJob(id, file)  // Pass file to startJob
+    void startJob(id, file)
     onClose()
-    navigate('/proses')
-
-    try {
-      // Start batch processing in background
-      const response = await apiClient.batchProcess(file)
-      console.log('Batch processing started:', response)
-      // Job status is updated in startJob
-    } catch (error) {
-      console.error('Batch processing error:', error)
-      // Job status is updated in startJob
-    } finally {
-      setUploading(false)
-    }
+    navigate(APP_ROUTES.adminProcess)
   }
 
   return (
@@ -67,7 +56,7 @@ export function UploadModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <p className="hint">
-          <IconInfo size={16} /> Data simulasi · Bukan hasil penelitian
+          <IconInfo size={16} /> Data hasil analisis disimpan pada database SQLite backend.
         </p>
 
         <label
@@ -124,13 +113,13 @@ export function UploadModal({ onClose }: { onClose: () => void }) {
         )}
 
         <div className="pipeline">
-          <p>Setelah validasi struktur data</p>
-          <span>Preprocessing → Sentimen IndoBERT → Kategori LLaMA 3 8B Instruct → Simpan & perbarui dashboard</span>
+          <p>Kolom komentar dan tahun dikenali tanpa membedakan kapitalisasi</p>
+          <span>Label sentimen/kategori dari file dipertahankan; model hanya digunakan jika label tidak tersedia → Simpan ke SQLite</span>
         </div>
 
         <div className="info-box">
           <IconInfo size={16} />
-          Analisis berjalan di latar belakang. Anda dapat meninggalkan halaman ini dan melihat status pemrosesan kembali.
+          Label dari dataset tidak diklasifikasikan ulang. Status verifikasi dan metode label sumber ditampilkan pada detail data. File yang sama tidak akan dihitung dua kali.
         </div>
 
         <div className="modal-actions">

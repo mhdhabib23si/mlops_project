@@ -12,9 +12,11 @@ from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 logger = logging.getLogger(__name__)
 
+SAD_NEUTRAL_MARGIN = 0.10
+
 
 class FacialExpressionAnalyzer:
-    def __init__(self, model_name: str = "trpakov/vit-face-expression"):
+    def __init__(self, model_name: str = "dima806/facial_emotions_image_detection"):
         self.model_name = os.getenv("FACIAL_EXPRESSION_MODEL", model_name)
         self.processor = None
         self.model = None
@@ -48,14 +50,29 @@ class FacialExpressionAnalyzer:
                 logits = self.model(**inputs).logits
                 probabilities = torch.nn.functional.softmax(logits, dim=-1)[0]
 
-            score, class_index = torch.max(probabilities, dim=-1)
-            emotion = self.model.config.id2label[class_index.item()].strip().lower()
+            scores = {
+                self.model.config.id2label[index].strip().lower(): score.item()
+                for index, score in enumerate(probabilities)
+            }
+            model_emotion, model_confidence = max(scores.items(), key=lambda item: item[1])
+            emotion, adjusted_for_sad = self._select_emotion(scores)
             sentiment = self._map_sentiment(emotion)
             return {
                 "emotion": emotion,
                 "sentiment": sentiment,
-                "confidence": round(score.item(), 4),
+                "confidence": round(scores[emotion], 4),
+                "model_emotion": model_emotion,
+                "model_confidence": round(model_confidence, 4),
+                "adjusted_for_sad": adjusted_for_sad,
             }
+
+    @staticmethod
+    def _select_emotion(scores: Dict[str, float]) -> tuple[str, bool]:
+        model_emotion, model_confidence = max(scores.items(), key=lambda item: item[1])
+        sad_confidence = scores.get("sad", 0.0)
+        if model_emotion == "neutral" and model_confidence - sad_confidence <= SAD_NEUTRAL_MARGIN:
+            return "sad", True
+        return model_emotion, False
 
     @staticmethod
     def _decode_image(image_bytes: bytes) -> Image.Image:

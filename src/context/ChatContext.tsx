@@ -6,25 +6,62 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { CHAT_SESSIONS } from '../data/chat'
+import type { ServiceCategory, Sentiment } from '../types'
 import type { ChatMessage, ChatSession, MessageSender } from '../types/chat'
 
 interface ChatState {
+  cameraPhoto: string | null
+  setCameraPhoto: (photo: string) => void
   sessions: ChatSession[]
   activeSessionId: string | null
   activeSession: ChatSession | null
   messages: ChatMessage[]
   createSession: () => string
   setActiveSession: (id: string) => void
-  addMessage: (content: string, sender: MessageSender, summaryCard?: { title: string; description: string }) => void
+  addMessage: (content: string, sender: MessageSender, summaryCard?: { title: string; description: string }) => string | null
+  updateMessageAnalysis: (messageId: string, sentiment: Sentiment, category: ServiceCategory) => void
   clearCurrentChat: () => void
 }
 
 const ChatContext = createContext<ChatState | null>(null)
 
-export function ChatProvider({ children }: { children: ReactNode }) {
-  const [sessions, setSessions] = useState<ChatSession[]>(CHAT_SESSIONS)
-  const [activeSessionId, setActiveSessionId] = useState<string | null>('session-1')
+function createWelcomeMessage(sessionId: string, role: 'admin' | 'user'): ChatMessage {
+  const timestamp = new Date()
+  return {
+    id: `msg-${sessionId}`,
+    sessionId,
+    sender: 'bot',
+    content:
+      role === 'user'
+        ? 'Halo! Silakan ceritakan pengalaman Anda tentang layanan pendidikan. Saya akan menganalisis sentimen dari teks yang Anda kirim.'
+        : 'Halo! Saya adalah asisten AI Analisis Umpan Balik PCR. Ada yang bisa saya bantu terkait data umpan balik mahasiswa?',
+    timestamp,
+  }
+}
+
+function createWelcomeSession(role: 'admin' | 'user'): ChatSession {
+  const now = new Date()
+  const id = `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  return {
+    id,
+    title: 'Percakapan Baru',
+    createdAt: now,
+    updatedAt: now,
+    messages: [createWelcomeMessage(id, role)],
+  }
+}
+
+export function ChatProvider({
+  children,
+  role = 'admin',
+}: {
+  children: ReactNode
+  role?: 'admin' | 'user'
+}) {
+  const [cameraPhoto, setCameraPhoto] = useState<string | null>(null)
+  const [initialSession] = useState(() => createWelcomeSession(role))
+  const [sessions, setSessions] = useState<ChatSession[]>([initialSession])
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(initialSession.id)
 
   const activeSession = useMemo(
     () => sessions.find((s) => s.id === activeSessionId) || null,
@@ -34,25 +71,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const messages = useMemo(() => activeSession?.messages || [], [activeSession])
 
   const createSession = useCallback(() => {
-    const newSession: ChatSession = {
-      id: `session-${Date.now()}`,
-      title: 'Percakapan Baru',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      messages: [
-        {
-          id: `msg-${Date.now()}`,
-          sessionId: `session-${Date.now()}`,
-          sender: 'bot',
-          content: 'Halo! Saya adalah asisten AI Analisis Umpan Balik PCR. Ada yang bisa saya bantu terkait data umpan balik mahasiswa?',
-          timestamp: new Date(),
-        },
-      ],
-    }
+    const newSession = createWelcomeSession(role)
     setSessions((prev) => [newSession, ...prev])
     setActiveSessionId(newSession.id)
     return newSession.id
-  }, [])
+  }, [role])
 
   const setActiveSession = useCallback((id: string) => {
     setActiveSessionId(id)
@@ -64,10 +87,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       sender: MessageSender,
       summaryCard?: { title: string; description: string },
     ) => {
-      if (!activeSessionId) return
+      if (!activeSessionId) return null
 
+      const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
       const newMessage: ChatMessage = {
-        id: `msg-${Date.now()}`,
+        id,
         sessionId: activeSessionId,
         sender,
         content,
@@ -90,8 +114,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             : session,
         ),
       )
+      return id
     },
     [activeSessionId],
+  )
+
+  const updateMessageAnalysis = useCallback(
+    (messageId: string, sentiment: Sentiment, category: ServiceCategory) => {
+      setSessions((prev) =>
+        prev.map((session) => ({
+          ...session,
+          messages: session.messages.map((message) =>
+            message.id === messageId ? { ...message, sentiment, category } : message,
+          ),
+        })),
+      )
+    },
+    [],
   )
 
   const clearCurrentChat = useCallback(() => {
@@ -102,24 +141,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         session.id === activeSessionId
           ? {
               ...session,
-              messages: [
-                {
-                  id: `msg-${Date.now()}`,
-                  sessionId: activeSessionId,
-                  sender: 'bot',
-                  content: 'Halo! Saya adalah asisten AI Analisis Umpan Balik PCR. Ada yang bisa saya bantu terkait data umpan balik mahasiswa?',
-                  timestamp: new Date(),
-                },
-              ],
+                messages: [createWelcomeMessage(activeSessionId, role)],
               updatedAt: new Date(),
             }
           : session,
       ),
     )
-  }, [activeSessionId])
+  }, [activeSessionId, role])
 
   const value = useMemo(
     () => ({
+      cameraPhoto,
+      setCameraPhoto,
       sessions,
       activeSessionId,
       activeSession,
@@ -127,9 +160,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       createSession,
       setActiveSession,
       addMessage,
+      updateMessageAnalysis,
       clearCurrentChat,
     }),
     [
+      cameraPhoto,
+      setCameraPhoto,
       sessions,
       activeSessionId,
       activeSession,
@@ -137,6 +173,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       createSession,
       setActiveSession,
       addMessage,
+      updateMessageAnalysis,
       clearCurrentChat,
     ],
   )

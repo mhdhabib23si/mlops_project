@@ -1,7 +1,8 @@
 import { type FormEvent, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { IconAlert, IconArrowRight, IconEye, IconEyeOff, IconLock, IconMail } from '../components/ui/Icons'
+import { APP_ROUTES } from '../lib/routes'
 
 export function LoginPage() {
   const { isAuthenticated, login } = useApp()
@@ -11,13 +12,13 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState(false)
 
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />
+  if (isAuthenticated) return <Navigate to={APP_ROUTES.adminDashboard} replace />
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault()
     const ok = login(email, password)
     setError(!ok)
-    if (ok) navigate('/dashboard')
+    if (ok) navigate(APP_ROUTES.adminDashboard)
   }
 
   return (
@@ -27,8 +28,8 @@ export function LoginPage() {
         <span className="blob blob-teal" />
         <form className="login-form" onSubmit={onSubmit}>
           <header>
-            <h1>Selamat datang kembali</h1>
-            <p>Masuk untuk mengakses dashboard analisis umpan balik mahasiswa.</p>
+            <h1>Login Administrator</h1>
+            <p>Masuk untuk mengelola dashboard, data, dan proses analisis umpan balik.</p>
           </header>
 
           {error && (
@@ -80,6 +81,7 @@ export function LoginPage() {
             <IconLock size={15} /> Data umpan balik bersifat rahasia. Hanya Admin yang berwenang dapat mengakses
             informasi ini.
           </p>
+          <Link className="login-public-link" to={APP_ROUTES.user}>Kembali ke chatbot pengguna</Link>
         </form>
       </section>
 

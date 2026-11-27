@@ -14,7 +14,7 @@ export function ChatbotPage() {
 
       <section className="chat-container">
         <ChatSidebar />
-        <ChatPanel />
+        <ChatPanel mode="admin" />
       </section>
 
       <footer className="page-foot">

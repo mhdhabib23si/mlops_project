@@ -5,8 +5,16 @@ import { SentimentCameraModal } from './SentimentCameraModal'
 import { useChat } from '../../context/ChatContext'
 import { apiClient } from '../../lib/api'
 
-export function ChatPanel() {
-  const { messages, addMessage, clearCurrentChat, activeSessionId } = useChat()
+export function ChatPanel({ mode = 'admin' }: { mode?: 'admin' | 'user' }) {
+  const {
+    messages,
+    addMessage,
+    updateMessageAnalysis,
+    clearCurrentChat,
+    activeSessionId,
+    cameraPhoto,
+    setCameraPhoto,
+  } = useChat()
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
@@ -23,12 +31,15 @@ export function ChatPanel() {
   const handleSend = async () => {
     if (!input.trim() || loading) return
 
-    addMessage(input, 'user')
+    const messageId = addMessage(input, 'user')
     setInput('')
     setLoading(true)
 
     try {
       const response = await apiClient.chat(input, activeSessionId || undefined)
+      if (messageId && response.sentiment && response.category) {
+        updateMessageAnalysis(messageId, response.sentiment, response.category)
+      }
       addMessage(
         response.message,
         'bot',
@@ -68,10 +79,12 @@ export function ChatPanel() {
           </div>
         </div>
         <div className="chat-header-actions">
-          <button type="button" className="ghost-btn" onClick={() => setCameraOpen(true)}>
-            <IconCamera size={16} />
-            Foto Sentimen
-          </button>
+          {mode === 'user' && (
+            <button type="button" className="ghost-btn" onClick={() => setCameraOpen(true)}>
+              <IconCamera size={16} />
+              Ganti Foto
+            </button>
+          )}
           <button type="button" className="ghost-btn" onClick={clearCurrentChat}>
             <IconRotateCcw size={16} />
             Bersihkan Chat
@@ -81,7 +94,7 @@ export function ChatPanel() {
 
       <div className="chat-messages">
         {messages.map((message) => (
-          <ChatBubble key={message.id} message={message} />
+          <ChatBubble key={message.id} message={message} photo={mode === 'user' ? cameraPhoto : null} />
         ))}
         <div ref={messagesEndRef} />
       </div>
@@ -95,7 +108,7 @@ export function ChatPanel() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ketik pertanyaan Anda..."
+            placeholder="Tulis komentar atau pertanyaan Anda..."
             className="chat-input"
           />
           <button type="button" className="send-btn" onClick={handleSend} disabled={!input.trim() || loading}>
@@ -103,7 +116,15 @@ export function ChatPanel() {
           </button>
         </div>
       </div>
-      {cameraOpen && <SentimentCameraModal onClose={() => setCameraOpen(false)} />}
+      {mode === 'user' && cameraOpen && (
+        <SentimentCameraModal
+          onClose={() => setCameraOpen(false)}
+          onPhotoCaptured={(photo) => {
+            setCameraPhoto(photo)
+            setCameraOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }

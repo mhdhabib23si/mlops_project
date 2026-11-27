@@ -1,43 +1,66 @@
-import { SURVEY_YEARS, YEARLY_SENTIMENT, YEARLY_TOTALS } from '../../data/dashboard'
 import { formatNumber, formatPercent } from '../../lib/format'
 
-export function VolumeTrend() {
-  const values = SURVEY_YEARS.map((y) => YEARLY_TOTALS[y])
-  const max = 24000
-  const w = 520
-  const h = 180
-  const pad = 28
-  const pts = values.map((v, i) => {
-    const x = pad + (i * (w - pad * 2)) / 3
-    const y = h - pad - (v / max) * (h - pad * 2)
-    return { x, y, v, year: SURVEY_YEARS[i] }
+interface TrendProps {
+  years: string[]
+  totals: Record<string, number>
+}
+
+interface SentimentTrendProps extends TrendProps {
+  sentiments: Record<
+    string,
+    { positif: number; netral: number; negatif: number }
+  >
+}
+
+function yearX(index: number, count: number, width: number, padding: number) {
+  if (count < 2) return width / 2
+  return padding + (index * (width - padding * 2)) / (count - 1)
+}
+
+export function VolumeTrend({ years, totals }: TrendProps) {
+  const width = 520
+  const height = 180
+  const padding = 28
+  const maxValue = Math.max(...years.map((year) => totals[year] ?? 0), 1)
+  const max = Math.ceil(maxValue / 4) * 4
+  const points = years.map((year, index) => {
+    const value = totals[year] ?? 0
+    return {
+      x: yearX(index, years.length, width, padding),
+      y: height - padding - (value / max) * (height - padding * 2),
+      value,
+      year,
+    }
   })
-  const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
-  const area = `${d} L${pts[3].x},${h - pad} L${pts[0].x},${h - pad} Z`
+  const line = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.y}`).join(' ')
+  const area = points.length
+    ? `${line} L${points[points.length - 1].x},${height - padding} L${points[0].x},${height - padding} Z`
+    : ''
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="trend-svg">
-      {[0, 6000, 12000, 18000, 24000].map((tick) => {
-        const y = h - pad - (tick / max) * (h - pad * 2)
+    <svg viewBox={`0 0 ${width} ${height}`} className="trend-svg">
+      {[0, 1, 2, 3, 4].map((step) => {
+        const tick = (max / 4) * step
+        const y = height - padding - (tick / max) * (height - padding * 2)
         return (
-          <g key={tick}>
-            <line x1={pad} x2={w - 8} y1={y} y2={y} stroke="#EDF2F7" />
+          <g key={step}>
+            <line x1={padding} x2={width - 8} y1={y} y2={y} stroke="#EDF2F7" />
             <text x={0} y={y + 4} fontSize="10" fill="#718096">
-              {tick === 0 ? '0' : formatNumber(tick)}
+              {formatNumber(tick)}
             </text>
           </g>
         )
       })}
       <path d={area} fill="rgba(0,75,95,0.08)" />
-      <path d={d} fill="none" stroke="#004B5F" strokeWidth="2.4" />
-      {pts.map((p) => (
-        <g key={p.year}>
-          <circle cx={p.x} cy={p.y} r="4" fill="#004B5F" />
-          <text x={p.x} y={p.y - 10} textAnchor="middle" fontSize="11" fill="#24343B">
-            {formatNumber(p.v)}
+      <path d={line} fill="none" stroke="#004B5F" strokeWidth="2.4" />
+      {points.map((point) => (
+        <g key={point.year}>
+          <circle cx={point.x} cy={point.y} r="4" fill="#004B5F" />
+          <text x={point.x} y={point.y - 10} textAnchor="middle" fontSize="11" fill="#24343B">
+            {formatNumber(point.value)}
           </text>
-          <text x={p.x} y={h - 6} textAnchor="middle" fontSize="11" fill="#718096">
-            {p.year}
+          <text x={point.x} y={height - 6} textAnchor="middle" fontSize="11" fill="#718096">
+            {point.year}
           </text>
         </g>
       ))}
@@ -45,34 +68,43 @@ export function VolumeTrend() {
   )
 }
 
-export function SentimentTrend() {
-  const w = 520
-  const h = 180
-  const pad = 28
+export function SentimentTrend({ years, totals, sentiments }: SentimentTrendProps) {
+  const width = 520
+  const height = 180
+  const padding = 28
   const series = {
-    positif: SURVEY_YEARS.map((y) => (YEARLY_SENTIMENT[y].positif / YEARLY_TOTALS[y]) * 100),
-    netral: SURVEY_YEARS.map((y) => (YEARLY_SENTIMENT[y].netral / YEARLY_TOTALS[y]) * 100),
-    negatif: SURVEY_YEARS.map((y) => (YEARLY_SENTIMENT[y].negatif / YEARLY_TOTALS[y]) * 100),
+    positif: years.map((year) => {
+      const total = totals[year] ?? 0
+      return total ? ((sentiments[year]?.positif ?? 0) / total) * 100 : 0
+    }),
+    netral: years.map((year) => {
+      const total = totals[year] ?? 0
+      return total ? ((sentiments[year]?.netral ?? 0) / total) * 100 : 0
+    }),
+    negatif: years.map((year) => {
+      const total = totals[year] ?? 0
+      return total ? ((sentiments[year]?.negatif ?? 0) / total) * 100 : 0
+    }),
   }
 
-  const line = (arr: number[], color: string) => {
-    const pts = arr.map((v, i) => {
-      const x = pad + (i * (w - pad * 2)) / 3
-      const y = h - pad - (v / 100) * (h - pad * 2)
-      return `${i === 0 ? 'M' : 'L'}${x},${y}`
+  const line = (values: number[], color: string) => {
+    const points = values.map((value, index) => {
+      const x = yearX(index, values.length, width, padding)
+      const y = height - padding - (value / 100) * (height - padding * 2)
+      return `${index === 0 ? 'M' : 'L'}${x},${y}`
     })
-    return <path d={pts.join(' ')} fill="none" stroke={color} strokeWidth="2.2" />
+    return <path d={points.join(' ')} fill="none" stroke={color} strokeWidth="2.2" />
   }
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="trend-svg">
+    <svg viewBox={`0 0 ${width} ${height}`} className="trend-svg">
       {[0, 25, 50, 75, 100].map((tick) => {
-        const y = h - pad - (tick / 100) * (h - pad * 2)
+        const y = height - padding - (tick / 100) * (height - padding * 2)
         return (
           <g key={tick}>
-            <line x1={pad} x2={w - 8} y1={y} y2={y} stroke="#EDF2F7" />
+            <line x1={padding} x2={width - 8} y1={y} y2={y} stroke="#EDF2F7" />
             <text x={0} y={y + 4} fontSize="10" fill="#718096">
-              {tick}.0%
+              {formatPercent(tick)}
             </text>
           </g>
         )
@@ -80,22 +112,26 @@ export function SentimentTrend() {
       {line(series.positif, '#5AA0B3')}
       {line(series.netral, '#2F6C7E')}
       {line(series.negatif, '#1B3C46')}
-      {SURVEY_YEARS.map((year, i) => {
-        const x = pad + (i * (w - pad * 2)) / 3
-        return (
-          <text key={year} x={x} y={h - 6} textAnchor="middle" fontSize="11" fill="#718096">
-            {year}
-          </text>
-        )
-      })}
+      {years.map((year, index) => (
+        <text
+          key={year}
+          x={yearX(index, years.length, width, padding)}
+          y={height - 6}
+          textAnchor="middle"
+          fontSize="11"
+          fill="#718096"
+        >
+          {year}
+        </text>
+      ))}
     </svg>
   )
 }
 
-export function volumeChange(year: string, prev?: string) {
-  if (!prev) return '—'
-  const a = YEARLY_TOTALS[year]
-  const b = YEARLY_TOTALS[prev]
-  const pct = ((a - b) / b) * 100
-  return `+${formatPercent(pct)}`
+export function volumeChange(year: string, previous: string | undefined, totals: Record<string, number>) {
+  if (!previous) return '—'
+  const previousTotal = totals[previous]
+  if (!previousTotal) return '—'
+  const change = ((totals[year] - previousTotal) / previousTotal) * 100
+  return `${change >= 0 ? '+' : ''}${formatPercent(change)}`
 }

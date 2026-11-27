@@ -24,16 +24,11 @@ function StatusPill({ status }: { status: ProcessJob['status'] }) {
 
 function JobCard({
   job,
-  onStart,
   onRetry,
 }: {
   job: ProcessJob
-  onStart: (id: string) => void
   onRetry: () => void
 }) {
-  const total = job.progress?.total ?? 0
-  const categoryPct = total ? Math.round(((job.progress?.category ?? 0) / total) * 100) : 0
-
   return (
     <article className={`job-card ${job.status}`}>
       <header>
@@ -51,57 +46,19 @@ function JobCard({
         <StatusPill status={job.status} />
       </header>
 
-      {job.status === 'menunggu' && (
-        <div className="job-actions">
-          <p>Tekan Proses Data untuk memulai pemeriksaan file.</p>
-          <button type="button" className="primary-btn" onClick={() => onStart(job.id)}>
-            Proses Data
-          </button>
-        </div>
-      )}
-
       {job.status === 'memvalidasi' && (
         <p className="job-note">Analisis model belum dimulai. Hasil validasi akan ditampilkan setelah pemeriksaan selesai.</p>
       )}
 
-      {job.status === 'memproses' && job.progress && (
-        <div className="progress-block">
-          <div className="steps">
-            <div className="done">
-              <IconCheck /> Preprocessing
-              <small>Selesai</small>
-            </div>
-            <div className="done">
-              <IconCheck /> Prediksi Sentimen
-              <small>
-                {formatNumber(job.progress.sentiment)} / {formatNumber(job.progress.total)}
-              </small>
-            </div>
-            <div className="current">
-              <IconRefresh /> Identifikasi Kategori
-              <small>
-                {formatNumber(job.progress.category)} / {formatNumber(job.progress.total)}
-              </small>
-            </div>
-            <div>
-              <IconClock /> Simpan & perbarui
-              <small>Menunggu</small>
-            </div>
-          </div>
-          <div className="bar">
-            <span style={{ width: `${categoryPct}%` }} />
-          </div>
-          <p>
-            {categoryPct.toFixed(1).replace('.', ',')}% tahap kategori · Anda dapat meninggalkan halaman ini. Proses tetap
-            berjalan di latar belakang.
-          </p>
-        </div>
+      {job.status === 'memproses' && (
+        <p className="job-note">
+          <IconRefresh /> Backend sedang menganalisis data dan menyimpannya ke SQLite.
+        </p>
       )}
 
       {job.status === 'selesai' && (
         <p className="success-note">
-          <IconCheck /> Preprocessing, prediksi sentimen, dan identifikasi kategori selesai. Dashboard telah diperbarui
-          untuk unggahan ini.
+          <IconCheck /> {formatNumber(job.progress?.saved ?? 0)} komentar berhasil diproses dan disimpan.
         </p>
       )}
 
@@ -131,7 +88,7 @@ export function ProcessDataPage() {
   const retry = (file: File | null) => {
     if (!file) return
     const id = addUploadJob(file)
-    startJob(id)
+    void startJob(id, file)
   }
 
   return (
@@ -141,17 +98,25 @@ export function ProcessDataPage() {
         <div>
           <h1>Status Pemrosesan</h1>
         </div>
+        <button type="button" className="primary-btn" onClick={() => inputRef.current?.click()}>
+          <IconUpload /> Unggah Data
+        </button>
       </header>
 
-      <div className="info-banner">
-        <IconInfo /> Setiap kartu adalah contoh unggahan berbeda, bukan proses yang berlangsung bersamaan.
-      </div>
+      {jobs.length === 0 && (
+        <section className="empty-card">
+          <div className="empty-icon">
+            <IconInfo />
+          </div>
+          <h2>Belum ada proses data</h2>
+          <p>Unggah file CSV atau Excel berisi kolom Komentar dan Tahun untuk memulai analisis.</p>
+        </section>
+      )}
 
       {jobs.map((job) => (
         <JobCard
           key={job.id}
           job={job}
-          onStart={startJob}
           onRetry={() => inputRef.current?.click()}
         />
       ))}

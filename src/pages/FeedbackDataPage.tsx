@@ -1,51 +1,109 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { DetailDrawer } from '../components/data/DetailDrawer'
 import { UploadModal } from '../components/data/UploadModal'
 import { FilterBar } from '../components/ui/FilterBar'
 import { IconSearch, IconUpload } from '../components/ui/Icons'
 import { SentimentBadge } from '../components/ui/SentimentBadge'
 import { useApp } from '../context/AppContext'
+import { apiClient, type PersistedFeedbackComment } from '../lib/api'
 import { formatNumber } from '../lib/format'
 import type { FeedbackComment } from '../types'
 
 const PAGE_SIZE = 7
 
-function matchesCategory(predicted: string, filter: string) {
-  const map: Record<string, string> = {
-    Kemahasiswaan: 'Kemahasiswaan',
-    Keuangan: 'Keuangan',
-    'Sistem & TI': 'Sistem',
-    Perpustakaan: 'Perpustakaan',
-    'Kerjasama & Karir': 'Kerjasama',
-    BAAK: 'BAAK',
-    'Sarana & Prasarana': 'Sarana',
+function toFeedbackComment(comment: PersistedFeedbackComment): FeedbackComment {
+  return {
+    id: comment.id,
+    year: comment.year,
+    date: String(comment.year),
+    text: comment.text,
+    originalCategory: comment.original_category ?? 'Tidak tersedia',
+    predictedCategory: comment.category,
+    sentiment: comment.sentiment,
+    labelSource: comment.label_source,
+    sourceLabelConfidence: comment.source_label_confidence,
+    sourceLabelMethod: comment.source_label_method,
+    verificationStatus: comment.verification_status,
   }
-  return predicted.includes(map[filter] ?? filter)
 }
 
 export function FeedbackDataPage() {
-  const { filters, setFilters, resetFilters, comments } = useApp()
+  const { filters, setFilters, resetFilters } = useApp()
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
-  const [detail, setDetail] = useState<FeedbackComment | null>(null)
+  const [years, setYears] = useState<string[]>([])
+  const [yearError, setYearError] = useState('')
+  const [pageLoad, setPageLoad] = useState<{
+    key: string
+    comments: PersistedFeedbackComment[]
+    total: number
+    error?: string
+  } | null>(null)
   const [showUpload, setShowUpload] = useState(false)
+  const [detail, setDetail] = useState<FeedbackComment | null>(null)
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return comments.filter((c) => {
-      if (filters.year !== 'all' && String(c.year) !== filters.year) return false
-      if (filters.sentiment !== 'all' && c.sentiment !== filters.sentiment) return false
-      if (filters.category !== 'all' && !matchesCategory(c.predictedCategory, filters.category)) return false
-      if (q && !c.text.toLowerCase().includes(q) && !c.predictedCategory.toLowerCase().includes(q)) return false
-      return true
+  useEffect(() => {
+    let active = true
+    apiClient.getStats()
+      .then((stats) => {
+        if (active) setYears(stats.available_years.map(String))
+      })
+      .catch((cause: unknown) => {
+        if (active) setYearError(cause instanceof Error ? cause.message : 'Gagal memuat daftar tahun.')
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const search = query.trim()
+  const queryKey = `${filters.year}|${filters.category}|${filters.sentiment}|${page}|${search}`
+
+  useEffect(() => {
+    let active = true
+    apiClient.getComments({
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+      year: filters.year,
+      category: filters.category,
+      sentiment: filters.sentiment,
+      search,
     })
-  }, [comments, filters, query])
+      .then((result) => {
+        if (!active) return
+        setPageLoad({
+          key: queryKey,
+          comments: result.comments,
+          total: result.total,
+        })
+      })
+      .catch((cause: unknown) => {
+        if (!active) return
+        setPageLoad({
+          key: queryKey,
+          comments: [],
+          total: 0,
+          error: cause instanceof Error ? cause.message : 'Gagal memuat data umpan balik.',
+        })
+      })
+    return () => {
+      active = false
+    }
+  }, [filters.year, filters.category, filters.sentiment, page, search, queryKey])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const loading = !pageLoad || pageLoad.key !== queryKey
+  const error = yearError || (pageLoad?.key === queryKey ? pageLoad.error ?? '' : '')
+  const comments = pageLoad?.key === queryKey ? pageLoad.comments : []
+  const total = pageLoad?.key === queryKey ? pageLoad.total : 0
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
-  const rows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
-  const start = filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1
-  const end = Math.min(safePage * PAGE_SIZE, filtered.length)
+  const start = total === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1
+  const end = Math.min(safePage * PAGE_SIZE, total)
+  const firstVisiblePage = Math.max(1, Math.min(safePage - 2, totalPages - 4))
+  const visiblePages = Array.from(
+    { length: Math.min(5, totalPages) },
+    (_, index) => firstVisiblePage + index,
+  )
 
   return (
     <div className="page">
@@ -53,7 +111,10 @@ export function FeedbackDataPage() {
       <header className="page-head">
         <div>
           <h1>Data Umpan Balik</h1>
-          <p>{formatNumber(70000)} komentar mahasiswa · periode survei 2022-2025</p>
+          <p>
+            {formatNumber(total)} komentar tersimpan
+            {years.length > 0 ? ` · tahun ${years[0]}-${years[years.length - 1]}` : ''}
+          </p>
         </div>
         <button type="button" className="primary-btn" onClick={() => setShowUpload(true)}>
           <IconUpload /> Unggah Data
@@ -64,8 +125,8 @@ export function FeedbackDataPage() {
         <IconSearch />
         <input
           value={query}
-          onChange={(e) => {
-            setQuery(e.target.value)
+          onChange={(event) => {
+            setQuery(event.target.value)
             setPage(1)
           }}
           placeholder="Cari kata atau frasa dalam komentar..."
@@ -74,6 +135,7 @@ export function FeedbackDataPage() {
 
       <FilterBar
         filters={filters}
+        years={years}
         onChange={(next) => {
           setFilters(next)
           setPage(1)
@@ -84,66 +146,77 @@ export function FeedbackDataPage() {
         }}
       />
 
+      {error && <div className="error-banner">Gagal memuat data: {error}</div>}
+
       <section className="card table-card">
         <div className="table-caption">
-          <strong>Seluruh komentar</strong>
-          <span>
-            {formatNumber(filtered.length)} data · Urutan terbaru
-          </span>
+          <strong>Data tersimpan</strong>
+          <span>{formatNumber(total)} data · Urutan terbaru</span>
         </div>
         <div className="table-scroll">
-        <table className="data-table full">
-          <thead>
-            <tr>
-              <th>No.</th>
-              <th>Tahun</th>
-              <th>Komentar</th>
-              <th>Kategori Asli</th>
-              <th>Sentimen</th>
-              <th>Kategori Prediksi</th>
-              <th>Aksi</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => (
-              <tr key={row.id}>
-                <td>{start + i}</td>
-                <td>{row.year}</td>
-                <td>{row.text.slice(0, 86)}{row.text.length > 86 ? '...' : ''}</td>
-                <td>{row.originalCategory}</td>
-                <td>
-                  <SentimentBadge sentiment={row.sentiment} />
-                </td>
-                <td>{row.predictedCategory}</td>
-                <td>
-                  <button type="button" className="link-btn" onClick={() => setDetail(row)}>
-                    Detail
-                  </button>
-                </td>
+          <table className="data-table full">
+            <thead>
+              <tr>
+                <th>No.</th>
+                <th>Tahun</th>
+                <th>Komentar</th>
+                <th>Kategori Asli</th>
+                <th>Sentimen</th>
+                <th>Kategori tersimpan</th>
+                <th>Aksi</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={7}>Memuat data tersimpan...</td></tr>
+              ) : comments.length === 0 ? (
+                <tr><td colSpan={7}>Belum ada data yang sesuai. Impor dataset asli untuk memulai.</td></tr>
+              ) : comments.map((comment, index) => (
+                <tr key={comment.id}>
+                  <td>{start + index}</td>
+                  <td>{comment.year}</td>
+                  <td>{comment.text.slice(0, 86)}{comment.text.length > 86 ? '...' : ''}</td>
+                  <td>{comment.original_category ?? 'Tidak tersedia'}</td>
+                  <td><SentimentBadge sentiment={comment.sentiment} /></td>
+                  <td>{comment.category}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => setDetail(toFeedbackComment(comment))}
+                    >
+                      Detail
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
         <div className="pagination">
           <span>
-            Menampilkan {start}-{end} dari {formatNumber(filtered.length)} data
+            {loading ? 'Memuat...' : `Menampilkan ${start}-${end} dari ${formatNumber(total)} data`}
           </span>
           <div>
-            <button type="button" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}>
+            <button type="button" disabled={safePage === 1 || loading} onClick={() => setPage(safePage - 1)}>
               ‹
             </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+            {visiblePages.map((number) => (
               <button
-                key={n}
+                key={number}
                 type="button"
-                className={n === safePage ? 'active' : ''}
-                onClick={() => setPage(n)}
+                className={number === safePage ? 'active' : ''}
+                onClick={() => setPage(number)}
+                disabled={loading}
               >
-                {n}
+                {number}
               </button>
             ))}
-            <button type="button" disabled={safePage === totalPages} onClick={() => setPage(safePage + 1)}>
+            <button
+              type="button"
+              disabled={safePage === totalPages || loading}
+              onClick={() => setPage(safePage + 1)}
+            >
               ›
             </button>
           </div>

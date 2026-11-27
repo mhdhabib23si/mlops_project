@@ -48,13 +48,41 @@ export function DetailDrawer({
             <strong>{item.originalCategory}</strong>
           </label>
           <label>
-            Hasil sentimen
+            Sentimen tersimpan
             <SentimentBadge sentiment={item.sentiment} />
           </label>
           <label>
-            Hasil kategori prediksi
+            Kategori tersimpan
             <strong>{item.predictedCategory}</strong>
           </label>
+          <label>
+            Sumber label
+            <strong>
+              {item.labelSource === 'dataset'
+                ? 'Mengikuti label dari dataset'
+                : item.labelSource === 'mixed'
+                  ? 'Dataset dan model backend'
+                  : 'Model backend'}
+            </strong>
+          </label>
+          {item.sourceLabelConfidence && (
+            <label>
+              Keyakinan label sumber
+              <strong>{item.sourceLabelConfidence}</strong>
+            </label>
+          )}
+          {item.verificationStatus && (
+            <label>
+              Status verifikasi sumber
+              <strong>{item.verificationStatus}</strong>
+            </label>
+          )}
+          {item.sourceLabelMethod && (
+            <label>
+              Metode label sumber
+              <strong>{item.sourceLabelMethod}</strong>
+            </label>
+          )}
         </section>
 
         <div className="drawer-actions">

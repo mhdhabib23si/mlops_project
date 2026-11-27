@@ -1,3 +1,5 @@
+import type { ServiceCategory, Sentiment } from '../types'
+
 const configuredApiBase = import.meta.env.VITE_API_BASE_URL as string | undefined
 const API_BASE_URL =
   configuredApiBase === '/'
@@ -10,7 +12,7 @@ export interface CommentRequest {
 
 export interface CommentResponse {
   text: string
-  sentiment: string
+  sentiment: Sentiment
   category: string
   confidence: number
 }
@@ -18,8 +20,50 @@ export interface CommentResponse {
 export interface BatchResponse {
   total: number
   processed: number
-  results: CommentResponse[]
-  status: string
+  results: PersistedFeedbackComment[]
+  status: 'completed' | 'already_imported'
+  message?: string
+}
+
+export interface PersistedFeedbackComment {
+  id: number
+  year: number
+  text: string
+  original_category: string | null
+  sentiment: Sentiment
+  category: string
+  confidence: number | null
+  label_source: 'dataset' | 'model' | 'mixed'
+  source_label_confidence: string | null
+  source_label_method: string | null
+  verification_status: string | null
+}
+
+export interface CommentsPage {
+  comments: PersistedFeedbackComment[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface DashboardStats {
+  total_comments: number
+  total_positif: number
+  total_netral: number
+  total_negatif: number
+  available_years: number[]
+  yearly_totals: Record<string, number>
+  yearly_sentiment: Record<
+    string,
+    { positif: number; netral: number; negatif: number }
+  >
+  category_stats: {
+    name: string
+    total: number
+    positif: number
+    netral: number
+    negatif: number
+  }[]
 }
 
 export interface UploadResponse {
@@ -37,6 +81,9 @@ export interface ChatRequest {
 
 export interface ChatResponse {
   message: string
+  sentiment: Sentiment
+  category: ServiceCategory
+  confidence: number
   summary_card?: {
     title: string
     description: string
@@ -48,6 +95,9 @@ export interface FaceAnalysisResponse {
   emotion: string
   sentiment: 'Positif' | 'Netral' | 'Negatif'
   confidence: number
+  model_emotion: string
+  model_confidence: number
+  adjusted_for_sad: boolean
 }
 
 class ApiClient {
@@ -81,6 +131,37 @@ class ApiClient {
     return this.request<{ status: string; service: string }>('/health')
   }
 
+  async getStats(filters: {
+    year?: string
+    category?: string
+    sentiment?: string
+  } = {}): Promise<DashboardStats> {
+    const params = new URLSearchParams()
+    if (filters.year && filters.year !== 'all') params.set('year', filters.year)
+    if (filters.category && filters.category !== 'all') params.set('category', filters.category)
+    if (filters.sentiment && filters.sentiment !== 'all') params.set('sentiment', filters.sentiment)
+    const query = params.size ? `?${params.toString()}` : ''
+    return this.request<DashboardStats>(`/api/stats${query}`)
+  }
+
+  async getComments(options: {
+    limit?: number
+    offset?: number
+    year?: string
+    category?: string
+    sentiment?: string
+    search?: string
+  } = {}): Promise<CommentsPage> {
+    const params = new URLSearchParams()
+    if (options.limit !== undefined) params.set('limit', String(options.limit))
+    if (options.offset !== undefined) params.set('offset', String(options.offset))
+    if (options.year && options.year !== 'all') params.set('year', options.year)
+    if (options.category && options.category !== 'all') params.set('category', options.category)
+    if (options.sentiment && options.sentiment !== 'all') params.set('sentiment', options.sentiment)
+    if (options.search) params.set('search', options.search)
+    return this.request<CommentsPage>(`/api/comments?${params.toString()}`)
+  }
+
   async analyzeComment(text: string): Promise<CommentResponse> {
     return this.request<CommentResponse>('/api/analyze', {
       method: 'POST',
@@ -98,7 +179,9 @@ class ApiClient {
     })
 
     if (!response.ok) {
-      throw new Error(`Upload Error: ${response.status} ${response.statusText}`)
+      const error = await response.json().catch(() => null) as { detail?: unknown } | null
+      const detail = typeof error?.detail === 'string' ? `: ${error.detail}` : ''
+      throw new Error(`Upload Error: ${response.status} ${response.statusText}${detail}`)
     }
 
     return response.json()
@@ -114,7 +197,9 @@ class ApiClient {
     })
 
     if (!response.ok) {
-      throw new Error(`Batch Process Error: ${response.status} ${response.statusText}`)
+      const error = await response.json().catch(() => null) as { detail?: unknown } | null
+      const detail = typeof error?.detail === 'string' ? `: ${error.detail}` : ''
+      throw new Error(`Batch Process Error: ${response.status} ${response.statusText}${detail}`)
     }
 
     return response.json()

@@ -1,3 +1,5 @@
+import type { ServiceCategory, Sentiment } from './index'
+
 export type MessageSender = 'user' | 'bot'
 
 export interface ChatMessage {
@@ -10,6 +12,8 @@ export interface ChatMessage {
     title: string
     description: string
   }
+  sentiment?: Sentiment
+  category?: ServiceCategory
 }
 
 export interface ChatSession {

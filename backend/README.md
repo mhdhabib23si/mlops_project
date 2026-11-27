@@ -46,7 +46,7 @@ python main.py
 
 Or using uvicorn directly:
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 API akan berjalan di: http://localhost:8000
@@ -87,12 +87,38 @@ Analisis satu komentar untuk sentimen dan kategori
 Upload file CSV/Excel untuk validasi
 
 ### POST /api/batch
-Batch processing untuk analisis sentimen dan kategori
+Menganalisis file CSV/Excel dan menyimpan hasilnya di SQLite. Kolom wajib: `Komentar`
+dan `Tahun` (nama kolom tidak peka kapitalisasi; `komentar` dan `tahun` juga diterima).
+Kolom `label_sentimen` dan `kategori_layanan` yang tersedia akan dipertahankan sebagai
+label sumber dan tidak diklasifikasikan ulang. Metadata keyakinan, metode, dan status
+verifikasi sumber ikut disimpan; keyakinan kategoris tidak diubah menjadi angka.
+Model hanya digunakan untuk label yang tidak disediakan. Baris komentar berulang
+dipertahankan. Impor ulang file dengan isi yang sama tidak menggandakan hasil.
+
+### GET /api/stats
+Mengembalikan statistik agregat yang dihitung dari record SQLite.
+
+### GET /api/comments
+Mengembalikan record tersimpan dengan pagination (`limit`, `offset`) dan filter
+opsional (`year`, `category`, `sentiment`, `search`).
+
+## Penyimpanan
+
+Database lokal default berada di `backend/feedback.sqlite3` dan dibuat otomatis saat
+backend dijalankan. Ubah lokasi dengan `FEEDBACK_DB_PATH`. Docker Compose menyimpan
+database pada volume persisten `feedback-data`. File database berisi komentar asli,
+jadi jangan membagikan atau memasukkannya ke version control.
 
 ### POST /api/analyze-face
 Menganalisis foto wajah menggunakan model ekspresi lokal, lalu mengembalikan
 ekspresi, sentimen, dan tingkat keyakinan. Gunakan JPEG, PNG, atau WEBP hingga 8 MB.
-Model ekspresi diunduh dari Hugging Face saat pertama kali dipakai.
+Model default `dima806/facial_emotions_image_detection` diunduh dari Hugging Face
+saat pertama kali dipakai. Kartu model melaporkan akurasi 90,92% dan recall 86,32%
+untuk kelas `sad` pada test set mereka; metrik ini bukan jaminan akurasi untuk kamera
+dan lingkungan project ini. Nama model dapat diganti melalui `FACIAL_EXPRESSION_MODEL`.
+Jika skor `neutral` hanya unggul maksimal 10 poin persentase dari `sad`, API memilih
+`sad` untuk mengurangi false negative ekspresi murung. Penyesuaian recall ini dapat
+menambah false positive; respons juga menyertakan prediksi mentah model agar hasilnya transparan.
 
 ## Pipeline
 

@@ -9,7 +9,7 @@ export function StackedBars({ rows }: { rows: CategoryStat[] }) {
     <div className="stacked-wrap">
       {hover && (
         <div className="tooltip">
-          Contoh tooltip: {hover}
+          {hover}
         </div>
       )}
       {rows.map((row) => {
